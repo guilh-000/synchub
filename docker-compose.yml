@@ -1,0 +1,180 @@
+# SyncHub local stack. Three systems talk to each other here:
+#
+#   legacy-erp (MySQL 5.7)  <──  SyncHub (Laravel)  ──>  shop (WooCommerce)
+#
+# - app / horizon / scheduler / vite: SyncHub itself, all from the same image.
+# - mysql: SyncHub's own database (connections, sync runs, ID mappings).
+# - legacy-erp: a fake legacy ERP, seeded from docker/legacy-erp/*.sql.
+# - shop + shop-db + shop-init: a WordPress + WooCommerce store; shop-init
+#   installs it once and writes the REST credentials SyncHub uses to
+#   storage/app/private/woocommerce.json.
+#
+# No `env_file`: Laravel reads the mounted `.env` itself. Injecting it as real
+# environment variables would beat phpunit.xml (APP_ENV=testing) in the tests.
+#
+# Ports are published on uncommon numbers so the stack can run next to other
+# projects: SyncHub http://localhost:8100, store http://localhost:8180.
+services:
+    app:
+        build: .
+        image: synchub-dev:latest
+        ports:
+            - '${APP_PORT:-8100}:8000'
+        volumes:
+            - .:/var/www/html
+        depends_on:
+            mysql:
+                condition: service_healthy
+            legacy-erp:
+                condition: service_healthy
+            redis:
+                condition: service_started
+
+    horizon:
+        image: synchub-dev:latest
+        command: php artisan horizon
+        volumes:
+            - .:/var/www/html
+        depends_on:
+            - app
+
+    scheduler:
+        image: synchub-dev:latest
+        command: php artisan schedule:work
+        volumes:
+            - .:/var/www/html
+        depends_on:
+            - app
+
+    vite:
+        image: synchub-dev:latest
+        command: npm run dev
+        environment:
+            VITE_PORT: '${VITE_PORT:-5180}'
+        ports:
+            - '${VITE_PORT:-5180}:5173'
+        volumes:
+            - .:/var/www/html
+        depends_on:
+            - app
+
+    mysql:
+        image: mysql:8.4
+        environment:
+            MYSQL_DATABASE: '${DB_DATABASE}'
+            MYSQL_USER: '${DB_USERNAME}'
+            MYSQL_PASSWORD: '${DB_PASSWORD}'
+            MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
+        ports:
+            - '${FORWARD_DB_PORT:-33100}:3306'
+        volumes:
+            - mysql-data:/var/lib/mysql
+        healthcheck:
+            test:
+                [
+                    'CMD',
+                    'mysqladmin',
+                    'ping',
+                    '-h',
+                    'localhost',
+                    '-p${DB_PASSWORD}',
+                ]
+            interval: 5s
+            retries: 20
+
+    # The "customer's" old ERP: MySQL 5.7, uppercase tables, no foreign keys,
+    # a DT_ALT column that changes on every update. SyncHub reads products and
+    # stock from it and writes orders back.
+    legacy-erp:
+        image: mysql:5.7
+        environment:
+            MYSQL_DATABASE: '${LEGACY_DB_DATABASE}'
+            MYSQL_USER: '${LEGACY_DB_USERNAME}'
+            MYSQL_PASSWORD: '${LEGACY_DB_PASSWORD}'
+            MYSQL_ROOT_PASSWORD: '${LEGACY_DB_PASSWORD}'
+        command:
+            [
+                '--character-set-server=latin1',
+                '--collation-server=latin1_swedish_ci',
+            ]
+        ports:
+            - '${FORWARD_LEGACY_DB_PORT:-33157}:3306'
+        volumes:
+            - legacy-erp-data:/var/lib/mysql
+            - ./docker/legacy-erp:/docker-entrypoint-initdb.d:ro
+        healthcheck:
+            test:
+                [
+                    'CMD',
+                    'mysqladmin',
+                    'ping',
+                    '-h',
+                    'localhost',
+                    '-p${LEGACY_DB_PASSWORD}',
+                ]
+            interval: 5s
+            retries: 20
+
+    redis:
+        image: redis:7.4-alpine
+        volumes:
+            - redis-data:/data
+
+    shop-db:
+        image: mariadb:11.4
+        environment:
+            MARIADB_DATABASE: wordpress
+            MARIADB_USER: wordpress
+            MARIADB_PASSWORD: wordpress
+            MARIADB_ROOT_PASSWORD: wordpress
+        volumes:
+            - shop-db-data:/var/lib/mysql
+        healthcheck:
+            test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+            interval: 5s
+            retries: 20
+
+    # WP_ENVIRONMENT_TYPE=local lets WordPress accept application passwords
+    # over plain HTTP, which is how SyncHub authenticates to the WooCommerce
+    # REST API in this stack (production stores use HTTPS).
+    shop:
+        image: wordpress:7.0-php8.4-apache
+        ports:
+            - '${SHOP_PORT:-8180}:80'
+        environment:
+            WORDPRESS_DB_HOST: shop-db
+            WORDPRESS_DB_USER: wordpress
+            WORDPRESS_DB_PASSWORD: wordpress
+            WORDPRESS_DB_NAME: wordpress
+            WORDPRESS_CONFIG_EXTRA: "define('WP_ENVIRONMENT_TYPE', 'local');"
+        volumes:
+            - shop-data:/var/www/html
+        depends_on:
+            shop-db:
+                condition: service_healthy
+
+    # One-off: installs WordPress + WooCommerce on the first run and creates
+    # the API credentials. Safe to rerun (skips what is already done).
+    shop-init:
+        image: wordpress:cli-2.12-php8.4
+        user: '33:33'
+        entrypoint: ['sh', '/scripts/init.sh']
+        environment:
+            WORDPRESS_DB_HOST: shop-db
+            WORDPRESS_DB_USER: wordpress
+            WORDPRESS_DB_PASSWORD: wordpress
+            WORDPRESS_DB_NAME: wordpress
+            SHOP_URL: 'http://localhost:${SHOP_PORT:-8180}'
+        volumes:
+            - shop-data:/var/www/html
+            - ./docker/woocommerce:/scripts:ro
+            - ./storage/app/private:/output
+        depends_on:
+            - shop
+
+volumes:
+    mysql-data:
+    legacy-erp-data:
+    redis-data:
+    shop-db-data:
+    shop-data:
