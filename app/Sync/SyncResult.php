@@ -1,9 +1,12 @@
 <?php
 
-namespace App\Sync\Products;
+namespace App\Sync;
 
 /**
  * Counters of one sync run, plus the items that failed and why.
+ *
+ * An item key is the record's key on the side it is read from: the ERP code
+ * for products and stock, the store's order ID for orders.
  */
 final class SyncResult
 {
@@ -15,12 +18,12 @@ final class SyncResult
 
     public int $skipped = 0;
 
-    /** @var list<array{legacy_key: string, message: string}> */
+    /** @var list<array{item_key: string, message: string}> */
     public array $failures = [];
 
-    public function fail(string $legacyKey, string $message): void
+    public function fail(string $itemKey, string $message): void
     {
-        $this->failures[] = ['legacy_key' => $legacyKey, 'message' => $message];
+        $this->failures[] = ['item_key' => $itemKey, 'message' => $message];
     }
 
     public function failed(): int

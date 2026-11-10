@@ -1,7 +1,9 @@
-import { Head, setLayoutProps, usePoll } from '@inertiajs/react';
+import { Form, Head, Link, setLayoutProps, usePoll } from '@inertiajs/react';
+import { RotateCcw } from 'lucide-react';
 import { useEffect } from 'react';
 import { RunCounters } from '@/components/sync/run-counters';
 import { RunStatusBadge } from '@/components/sync/run-status-badge';
+import { Button } from '@/components/ui/button';
 import {
     Card,
     CardContent,
@@ -11,8 +13,20 @@ import {
 } from '@/components/ui/card';
 import { dateTime, duration } from '@/lib/format';
 import { dashboard } from '@/routes';
-import { index, show } from '@/routes/runs';
+import { index, retry, show } from '@/routes/runs';
 import type { SyncRun } from '@/types';
+
+const syncTitles: Record<string, string> = {
+    products: 'Products',
+    stock: 'Stock',
+    orders: 'Orders',
+};
+
+const itemLabels: Record<string, string> = {
+    products: 'ERP code',
+    stock: 'ERP code',
+    orders: 'Store order',
+};
 
 const triggers: Record<SyncRun['trigger'], string> = {
     schedule: 'the schedule',
@@ -52,7 +66,8 @@ export default function RunsShow({ run }: { run: SyncRun }) {
                     <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
                         <div className="space-y-1.5">
                             <CardTitle className="flex items-center gap-2">
-                                Products sync #{run.id}
+                                {syncTitles[run.sync] ?? run.sync} sync #
+                                {run.id}
                                 <RunStatusBadge status={run.status} />
                             </CardTitle>
                             <CardDescription>
@@ -62,7 +77,51 @@ export default function RunsShow({ run }: { run: SyncRun }) {
                                 {' · '}
                                 {duration(run.duration_seconds)}
                             </CardDescription>
+                            {run.retry_of_id !== null && (
+                                <p className="text-sm text-muted-foreground">
+                                    Retry of the failed items of{' '}
+                                    <Link
+                                        href={show(run.retry_of_id)}
+                                        className="font-medium text-foreground hover:underline"
+                                    >
+                                        #{run.retry_of_id}
+                                    </Link>
+                                </p>
+                            )}
+                            {(run.retries ?? []).length > 0 && (
+                                <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                                    Retried in
+                                    {run.retries?.map((retryRun) => (
+                                        <Link
+                                            key={retryRun.id}
+                                            href={show(retryRun.id)}
+                                            className="inline-flex items-center gap-1 font-medium text-foreground hover:underline"
+                                        >
+                                            #{retryRun.id}
+                                            <RunStatusBadge
+                                                status={retryRun.status}
+                                            />
+                                        </Link>
+                                    ))}
+                                </p>
+                            )}
                         </div>
+                        {failures.length > 0 && run.status !== 'running' && (
+                            <Form
+                                {...retry.form(run.id)}
+                                options={{ preserveScroll: true }}
+                            >
+                                {({ processing }) => (
+                                    <Button
+                                        variant="outline"
+                                        disabled={processing}
+                                    >
+                                        <RotateCcw />
+                                        Retry {failures.length} failed
+                                    </Button>
+                                )}
+                            </Form>
+                        )}
                     </CardHeader>
                     <CardContent className="space-y-3">
                         <RunCounters run={run} />
@@ -87,7 +146,7 @@ export default function RunsShow({ run }: { run: SyncRun }) {
                     <CardHeader>
                         <CardTitle>Rejected items</CardTitle>
                         <CardDescription>
-                            Products the store refused. The rest of the batch
+                            Items that could not be synced. The rest of the run
                             went through.
                         </CardDescription>
                     </CardHeader>
@@ -101,7 +160,7 @@ export default function RunsShow({ run }: { run: SyncRun }) {
                                 <thead className="text-left text-xs text-muted-foreground">
                                     <tr className="border-b">
                                         <th className="py-2 pr-4 font-medium">
-                                            ERP code
+                                            {itemLabels[run.sync] ?? 'Item'}
                                         </th>
                                         <th className="py-2 font-medium">
                                             Reason
@@ -115,7 +174,7 @@ export default function RunsShow({ run }: { run: SyncRun }) {
                                             className="border-b last:border-0"
                                         >
                                             <td className="py-2 pr-4 font-mono">
-                                                {failure.legacy_key}
+                                                {failure.item_key}
                                             </td>
                                             <td className="py-2">
                                                 {failure.message}

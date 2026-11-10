@@ -1,6 +1,26 @@
 <?php
 
+use App\Sync\Orders\OrderImport;
+use App\Sync\Products\ProductSync;
+use App\Sync\Stock\StockSync;
+
 return [
+
+    /*
+    |--------------------------------------------------------------------------
+    | Syncs
+    |--------------------------------------------------------------------------
+    |
+    | Every sync SyncHub runs, by key. Order matters on the dashboard and for
+    | a first run: products must exist in the store before their stock.
+    |
+    */
+
+    'syncs' => [
+        'products' => ProductSync::class,
+        'stock' => StockSync::class,
+        'orders' => OrderImport::class,
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -35,6 +55,21 @@ return [
     'products' => [
         'batch_size' => (int) env('SYNC_PRODUCTS_BATCH_SIZE', 100),
         'overlap_seconds' => (int) env('SYNC_PRODUCTS_OVERLAP_SECONDS', 5),
+    ],
+
+    'stock' => [
+        'batch_size' => (int) env('SYNC_STOCK_BATCH_SIZE', 100),
+        'overlap_seconds' => (int) env('SYNC_STOCK_OVERLAP_SECONDS', 5),
+    ],
+
+    /*
+    | Paid orders only: the ERP should not see carts that were never paid.
+    */
+
+    'orders' => [
+        'statuses' => ['processing', 'completed'],
+        'page_size' => (int) env('SYNC_ORDERS_PAGE_SIZE', 50),
+        'overlap_seconds' => (int) env('SYNC_ORDERS_OVERLAP_SECONDS', 60),
     ],
 
 ];

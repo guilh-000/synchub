@@ -9,7 +9,8 @@ use App\Integrations\WooCommerce\WooCommerceClient;
 use App\Integrations\WooCommerce\WooCommerceException;
 use App\Models\SyncCursor;
 use App\Models\SyncMapping;
-use Carbon\CarbonImmutable;
+use App\Sync\Sync;
+use App\Sync\SyncResult;
 use Illuminate\Support\Collection;
 use Illuminate\Support\LazyCollection;
 
@@ -26,9 +27,9 @@ use Illuminate\Support\LazyCollection;
  * - Safe to interrupt: the watermark only moves after a batch is accepted
  *   by the store, so a run that dies resumes from the last good batch.
  */
-class ProductSync
+class ProductSync implements Sync
 {
-    public const string CURSOR = 'products';
+    public const string KEY = 'products';
 
     public function __construct(
         private readonly LegacyProductReader $reader,
@@ -36,29 +37,60 @@ class ProductSync
         private readonly ProductPayloadMapper $mapper,
     ) {}
 
+    public function key(): string
+    {
+        return self::KEY;
+    }
+
+    public function title(): string
+    {
+        return 'Products';
+    }
+
+    public function direction(): string
+    {
+        return 'ERP → store';
+    }
+
     /**
-     * @param  bool  $full  ignore the watermark and compare every product
-     * @param  SyncResult  $result  filled as the run goes, so the counters
-     *                              survive an exception halfway through
-     *
      * @throws WooCommerceException when the store is unreachable after the retries
      */
     public function run(bool $full = false, SyncResult $result = new SyncResult): SyncResult
     {
-        $cursor = SyncCursor::named(self::CURSOR);
-        $batchSize = max(1, min(100, (int) config('synchub.products.batch_size')));
+        $cursor = SyncCursor::named(self::KEY);
+        $start = $full ? null : $cursor->startingPoint((int) config('synchub.products.overlap_seconds'));
 
-        $this->reader
-            ->changedSince($full ? null : $this->startOf($cursor))
-            ->chunk($batchSize)
-            ->each(function (LazyCollection $chunk) use ($result, $cursor): void {
-                /** @var Collection<int, LegacyProduct> $products */
-                $products = $chunk->collect()->values();
-                $this->syncBatch($products, $result);
-                $this->advance($cursor, $products->last());
-            });
+        $this->process($this->reader->changedSince($start), $result, $cursor);
 
         return $result;
+    }
+
+    /**
+     * @param  list<string>  $itemKeys  ERP product codes
+     */
+    public function retry(array $itemKeys, SyncResult $result = new SyncResult): SyncResult
+    {
+        $this->process($this->reader->byCodes(array_map(intval(...), $itemKeys)), $result);
+
+        return $result;
+    }
+
+    /**
+     * @param  LazyCollection<int, LegacyProduct>  $products
+     */
+    private function process(LazyCollection $products, SyncResult $result, ?SyncCursor $cursor = null): void
+    {
+        $batchSize = max(1, min(100, (int) config('synchub.products.batch_size')));
+
+        $products->chunk($batchSize)->each(function (LazyCollection $chunk) use ($result, $cursor): void {
+            /** @var Collection<int, LegacyProduct> $batch */
+            $batch = $chunk->collect()->values();
+            $this->syncBatch($batch, $result);
+
+            /** @var LegacyProduct $last */
+            $last = $batch->last();
+            $cursor?->advanceTo($last->changedAt, (string) $last->code);
+        });
     }
 
     /**
@@ -156,31 +188,5 @@ class ProductSync
             ['entity' => SyncMapping::PRODUCT, 'legacy_key' => (string) $product->code],
             ['store_id' => $storeId, 'payload_hash' => $hash, 'synced_at' => now()],
         );
-    }
-
-    /**
-     * Where this run starts reading: the watermark minus the overlap window.
-     */
-    private function startOf(SyncCursor $cursor): ?CarbonImmutable
-    {
-        return $cursor->changed_at === null
-            ? null
-            : CarbonImmutable::instance($cursor->changed_at)->subSeconds((int) config('synchub.products.overlap_seconds'));
-    }
-
-    /**
-     * Moves the watermark to the last product of a finished batch. Never
-     * backwards: batches inside the overlap window are older than it.
-     */
-    private function advance(SyncCursor $cursor, LegacyProduct $last): void
-    {
-        $current = $cursor->changed_at;
-        $isAhead = $current === null
-            || $last->changedAt->greaterThan($current)
-            || ($last->changedAt->equalTo($current) && $last->code > (int) $cursor->last_key);
-
-        if ($isAhead) {
-            $cursor->update(['changed_at' => $last->changedAt, 'last_key' => (string) $last->code]);
-        }
     }
 }

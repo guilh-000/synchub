@@ -15,6 +15,12 @@ final class FakeStore
     /** @var array<string, int> SKU => product ID */
     public array $products = [];
 
+    /** @var list<array<string, mixed>> orders in the store, oldest change first */
+    public array $orders = [];
+
+    /** @var list<array<string, mixed>> query strings of every orders listing */
+    public array $orderQueries = [];
+
     /** @var list<array{create: list<array<string, mixed>>, update: list<array<string, mixed>>}> */
     public array $batches = [];
 
@@ -25,7 +31,11 @@ final class FakeStore
         self::configure();
         $store = new self;
 
-        Http::fake(['store.test/wp-json/wc/v3/products/batch' => fn (Request $request) => Http::response($store->handle($request))]);
+        Http::fake([
+            'store.test/wp-json/wc/v3/products/batch' => fn (Request $request) => Http::response($store->handle($request)),
+            'store.test/wp-json/wc/v3/orders/*' => fn (Request $request) => Http::response($store->findOrder($request)),
+            'store.test/wp-json/wc/v3/orders*' => fn (Request $request) => Http::response($store->listOrders($request)),
+        ]);
 
         return $store;
     }
@@ -49,6 +59,66 @@ final class FakeStore
     public function seed(string $sku): int
     {
         return $this->products[$sku] = $this->nextId++;
+    }
+
+    /**
+     * A paid order with the given items (product ID => quantity).
+     *
+     * @param  array<int, int>  $items
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    public function order(int $id, array $items, array $overrides = []): array
+    {
+        $order = $overrides + [
+            'id' => $id,
+            'number' => (string) $id,
+            'status' => 'processing',
+            'date_created' => '2026-02-01T10:00:00',
+            'date_modified_gmt' => sprintf('2026-02-01T13:%02d:00', $id % 60),
+            'total' => '0.00',
+            'billing' => ['first_name' => 'Ana', 'last_name' => 'Souza', 'company' => ''],
+            'line_items' => array_map(fn (int $productId, int $quantity): array => [
+                'product_id' => $productId,
+                'name' => "Product #{$productId}",
+                'quantity' => $quantity,
+                'price' => 10,
+            ], array_keys($items), $items),
+        ];
+
+        return $this->orders[] = $order;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function listOrders(Request $request): array
+    {
+        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+        $this->orderQueries[] = $query;
+        $perPage = (int) ($query['per_page'] ?? 10);
+        $page = (int) ($query['page'] ?? 1);
+
+        $orders = array_values(array_filter($this->orders, fn (array $order): bool => ! isset($query['modified_after'])
+            || $order['date_modified_gmt'] > $query['modified_after']));
+
+        return array_slice($orders, ($page - 1) * $perPage, $perPage);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function findOrder(Request $request): array
+    {
+        $id = (int) basename((string) parse_url($request->url(), PHP_URL_PATH));
+
+        foreach ($this->orders as $order) {
+            if ($order['id'] === $id) {
+                return $order;
+            }
+        }
+
+        return [];
     }
 
     public function sentProducts(): int

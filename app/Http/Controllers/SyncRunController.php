@@ -32,7 +32,7 @@ class SyncRunController extends Controller
 
     public function show(SyncRun $run): Response
     {
-        $run->load(['failures' => fn ($query) => $query->orderBy('id')->limit(500)]);
+        $run->load(['failures' => fn ($query) => $query->orderBy('id')->limit(500), 'retries']);
 
         return Inertia::render('runs/show', [
             'run' => SyncRunResource::make($run)->resolve(),

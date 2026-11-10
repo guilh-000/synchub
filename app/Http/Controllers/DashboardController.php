@@ -8,7 +8,11 @@ use App\Integrations\WooCommerce\WooCommerceClient;
 use App\Models\SyncCursor;
 use App\Models\SyncMapping;
 use App\Models\SyncRun;
+use App\Sync\Orders\OrderImport;
 use App\Sync\Products\ProductSync;
+use App\Sync\Stock\StockSync;
+use App\Sync\Sync;
+use App\Sync\SyncRegistry;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -16,21 +20,17 @@ use Throwable;
 
 class DashboardController extends Controller
 {
-    public function __invoke(WooCommerceClient $store): Response
-    {
-        $lastRun = SyncRun::query()->where('sync', ProductSync::CURSOR)->latest('id')->first();
+    /** Which mappings count as "mapped" for each sync. */
+    private const array MAPPED_ENTITY = [
+        ProductSync::KEY => SyncMapping::PRODUCT,
+        StockSync::KEY => SyncMapping::STOCK,
+        OrderImport::KEY => SyncMapping::ORDER,
+    ];
 
+    public function __invoke(SyncRegistry $syncs, WooCommerceClient $store): Response
+    {
         return Inertia::render('dashboard', [
-            'syncs' => [[
-                'key' => ProductSync::CURSOR,
-                'title' => 'Products',
-                'direction' => 'ERP → store',
-                'schedule' => 'Every 5 minutes',
-                'watermark' => SyncCursor::query()->where('name', ProductSync::CURSOR)->value('changed_at'),
-                'mapped' => SyncMapping::query()->where('entity', SyncMapping::PRODUCT)->count(),
-                'running' => $lastRun?->status === SyncRunStatus::Running,
-                'last_run' => $lastRun === null ? null : SyncRunResource::make($lastRun)->resolve(),
-            ]],
+            'syncs' => array_map($this->overview(...), $syncs->all()),
             'recentRuns' => SyncRunResource::collection(SyncRun::query()->latest('id')->limit(8)->get())->resolve(),
             // Checking both systems costs a query and an HTTP call: loaded
             // after the page renders, so a slow store never blocks it.
@@ -39,6 +39,26 @@ class DashboardController extends Controller
                 'store' => $this->check(fn (): string => $store->productCount().' products'),
             ]),
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function overview(Sync $sync): array
+    {
+        $lastRun = SyncRun::query()->where('sync', $sync->key())->latest('id')->first();
+        $entity = self::MAPPED_ENTITY[$sync->key()] ?? null;
+
+        return [
+            'key' => $sync->key(),
+            'title' => $sync->title(),
+            'direction' => $sync->direction(),
+            'schedule' => $sync->key() === OrderImport::KEY ? 'Every 2 minutes' : 'Every 5 minutes',
+            'watermark' => SyncCursor::query()->where('name', $sync->key())->value('changed_at'),
+            'mapped' => $entity === null ? 0 : SyncMapping::query()->where('entity', $entity)->count(),
+            'running' => $lastRun?->status === SyncRunStatus::Running,
+            'last_run' => $lastRun === null ? null : SyncRunResource::make($lastRun)->resolve(),
+        ];
     }
 
     /**

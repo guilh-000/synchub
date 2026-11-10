@@ -5,7 +5,6 @@ namespace App\Sync;
 use App\Enums\SyncRunStatus;
 use App\Enums\SyncTrigger;
 use App\Models\SyncRun;
-use App\Sync\Products\SyncResult;
 use Closure;
 use Throwable;
 
@@ -21,12 +20,13 @@ class SyncRunRecorder
      *
      * @throws Throwable whatever the work threw, after recording it
      */
-    public function record(string $sync, SyncTrigger $trigger, bool $full, Closure $work): SyncRun
+    public function record(string $sync, SyncTrigger $trigger, bool $full, Closure $work, ?int $retryOfId = null): SyncRun
     {
         $run = SyncRun::query()->create([
             'sync' => $sync,
             'trigger' => $trigger,
             'full' => $full,
+            'retry_of_id' => $retryOfId,
             'status' => SyncRunStatus::Running,
             'started_at' => now(),
         ]);

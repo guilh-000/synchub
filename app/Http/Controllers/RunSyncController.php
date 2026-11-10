@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Enums\SyncRunStatus;
 use App\Enums\SyncTrigger;
-use App\Jobs\SyncProducts;
+use App\Jobs\RunSync;
 use App\Models\SyncRun;
-use App\Sync\Products\ProductSync;
+use App\Sync\SyncRegistry;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 
@@ -15,21 +15,19 @@ use Inertia\Inertia;
  */
 class RunSyncController extends Controller
 {
-    public function __invoke(): RedirectResponse
+    public function __invoke(string $sync, SyncRegistry $syncs): RedirectResponse
     {
-        $isRunning = SyncRun::query()
-            ->where('sync', ProductSync::CURSOR)
-            ->where('status', SyncRunStatus::Running)
-            ->exists();
+        abort_unless($syncs->has($sync), 404);
+        $title = $syncs->get($sync)->title();
 
-        if ($isRunning) {
-            Inertia::flash('toast', ['type' => 'info', 'message' => 'A product sync is already running.']);
+        if (SyncRun::query()->where('sync', $sync)->where('status', SyncRunStatus::Running)->exists()) {
+            Inertia::flash('toast', ['type' => 'info', 'message' => "{$title} sync is already running."]);
 
             return back();
         }
 
-        SyncProducts::dispatch(trigger: SyncTrigger::Manual);
-        Inertia::flash('toast', ['type' => 'success', 'message' => 'Product sync queued.']);
+        RunSync::dispatch($sync, trigger: SyncTrigger::Manual);
+        Inertia::flash('toast', ['type' => 'success', 'message' => "{$title} sync queued."]);
 
         return back();
     }

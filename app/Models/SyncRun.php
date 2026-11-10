@@ -8,6 +8,7 @@ use Database\Factories\SyncRunFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
@@ -18,6 +19,7 @@ use Illuminate\Support\Carbon;
  * @property string $sync
  * @property SyncTrigger $trigger
  * @property bool $full
+ * @property int|null $retry_of_id
  * @property SyncRunStatus $status
  * @property int $read
  * @property int $created
@@ -30,7 +32,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['sync', 'trigger', 'full', 'status', 'read', 'created', 'updated', 'skipped', 'failed', 'error', 'started_at', 'finished_at'])]
+#[Fillable(['sync', 'trigger', 'full', 'retry_of_id', 'status', 'read', 'created', 'updated', 'skipped', 'failed', 'error', 'started_at', 'finished_at'])]
 class SyncRun extends Model
 {
     /** @use HasFactory<SyncRunFactory> */
@@ -42,6 +44,26 @@ class SyncRun extends Model
     public function failures(): HasMany
     {
         return $this->hasMany(SyncRunFailure::class);
+    }
+
+    /**
+     * The run whose failures this one replayed.
+     *
+     * @return BelongsTo<SyncRun, $this>
+     */
+    public function retryOf(): BelongsTo
+    {
+        return $this->belongsTo(SyncRun::class, 'retry_of_id');
+    }
+
+    /**
+     * Runs that replayed this one's failures.
+     *
+     * @return HasMany<SyncRun, $this>
+     */
+    public function retries(): HasMany
+    {
+        return $this->hasMany(SyncRun::class, 'retry_of_id');
     }
 
     public function durationInSeconds(): ?float

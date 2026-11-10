@@ -3,7 +3,7 @@
 use App\Enums\SyncRunStatus;
 use App\Enums\SyncTrigger;
 use App\Models\SyncRun;
-use App\Sync\Products\SyncResult;
+use App\Sync\SyncResult;
 use App\Sync\SyncRunRecorder;
 
 test('a run that finishes cleanly is recorded as succeeded with its counters', function () {
@@ -31,7 +31,7 @@ test('rejected items make the run partial and are kept', function () {
 
     expect($run->refresh()->status)->toBe(SyncRunStatus::Partial)
         ->and($run->failed)->toBe(1)
-        ->and($run->failures()->sole()->only(['legacy_key', 'message']))->toBe(['legacy_key' => '7', 'message' => 'Invalid price.']);
+        ->and($run->failures()->sole()->only(['item_key', 'message']))->toBe(['item_key' => '7', 'message' => 'Invalid price.']);
 });
 
 test('a run that dies is recorded as failed, keeping what it did before', function () {

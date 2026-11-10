@@ -12,12 +12,12 @@ use Illuminate\Support\Carbon;
  *
  * @property int $id
  * @property int $sync_run_id
- * @property string $legacy_key
+ * @property string $item_key
  * @property string $message
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['legacy_key', 'message'])]
+#[Fillable(['item_key', 'message'])]
 class SyncRunFailure extends Model
 {
     /**

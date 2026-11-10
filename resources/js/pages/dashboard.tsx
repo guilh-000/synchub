@@ -17,7 +17,7 @@ import { dateTime, timeAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { dashboard } from '@/routes';
 import { index as runsIndex, show } from '@/routes/runs';
-import { run as runProducts } from '@/routes/syncs/products';
+import { run as runSync } from '@/routes/syncs';
 import type { HealthCheck, SyncOverview, SyncRun } from '@/types';
 
 type Props = {
@@ -156,7 +156,7 @@ function SyncCard({ sync }: { sync: SyncOverview }) {
                     </CardDescription>
                 </div>
                 <Form
-                    {...runProducts.form()}
+                    {...runSync.form(sync.key)}
                     options={{ preserveScroll: true }}
                 >
                     {({ processing }) => (

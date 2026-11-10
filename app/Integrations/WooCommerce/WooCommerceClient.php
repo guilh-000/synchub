@@ -2,6 +2,8 @@
 
 namespace App\Integrations\WooCommerce;
 
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
@@ -46,6 +48,52 @@ class WooCommerceClient
             'create' => array_map(BatchItemResult::fromResponse(...), $body['create'] ?? []),
             'update' => array_map(BatchItemResult::fromResponse(...), $body['update'] ?? []),
         ];
+    }
+
+    /**
+     * Orders modified after the given moment, oldest change first.
+     *
+     * @param  list<string>  $statuses
+     * @return list<array<string, mixed>>
+     */
+    public function ordersModifiedSince(?CarbonInterface $after, array $statuses, int $page = 1, int $perPage = 50): array
+    {
+        $query = [
+            'orderby' => 'modified',
+            'order' => 'asc',
+            'page' => $page,
+            'per_page' => $perPage,
+            'status' => implode(',', $statuses),
+        ];
+
+        if ($after !== null) {
+            $query['modified_after'] = CarbonImmutable::instance($after)->utc()->format('Y-m-d\TH:i:s');
+            $query['dates_are_gmt'] = 'true';
+        }
+
+        /** @var list<array<string, mixed>> */
+        return array_values($this->send('get', 'orders', $query));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function order(int $id): array
+    {
+        /** @var array<string, mixed> */
+        return $this->send('get', "orders/{$id}");
+    }
+
+    /**
+     * Places an order (used to generate demo data).
+     *
+     * @param  array<string, mixed>  $order
+     * @return array<string, mixed>
+     */
+    public function createOrder(array $order): array
+    {
+        /** @var array<string, mixed> */
+        return $this->send('post', 'orders', $order);
     }
 
     /**

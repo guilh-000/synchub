@@ -24,6 +24,12 @@ class SyncMapping extends Model
 {
     public const string PRODUCT = 'product';
 
+    /** Last stock sent for a product (store_id is the product's). */
+    public const string STOCK = 'stock';
+
+    /** An order imported from the store: legacy_key is the ERP's NUMPED. */
+    public const string ORDER = 'order';
+
     /**
      * @return array<string, string>
      */

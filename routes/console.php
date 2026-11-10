@@ -1,6 +1,8 @@
 <?php
 
-use App\Jobs\SyncProducts;
+use App\Jobs\RunSync;
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::job(new SyncProducts)->everyFiveMinutes();
+Schedule::job(new RunSync('products'))->everyFiveMinutes();
+Schedule::job(new RunSync('stock'))->everyFiveMinutes();
+Schedule::job(new RunSync('orders'))->everyTwoMinutes();

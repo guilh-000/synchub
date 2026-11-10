@@ -1,7 +1,7 @@
 <?php
 
 use App\Enums\SyncTrigger;
-use App\Jobs\SyncProducts;
+use App\Jobs\RunSync;
 use App\Models\SyncRun;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
@@ -25,6 +25,9 @@ test('the dashboard shows the product sync and the latest runs', function () {
             ->where('syncs.0.key', 'products')
             ->where('syncs.0.running', true)
             ->where('syncs.0.last_run.id', $last->id)
+            ->where('syncs.1.key', 'stock')
+            ->where('syncs.2.key', 'orders')
+            ->where('syncs.2.last_run', null)
             ->has('recentRuns', 4)
             ->missing('health'));
 });
@@ -56,15 +59,21 @@ test('an unreachable store shows up in the health check instead of breaking the 
                 ->where('health.erp.ok', true)));
 });
 
-test('"Run now" queues a product sync started from the dashboard', function () {
+test('"Run now" queues the sync started from the dashboard', function () {
     Queue::fake();
     $this->actingAs(User::factory()->create());
 
     $this->from(route('dashboard'))
-        ->post(route('syncs.products.run'))
+        ->post(route('syncs.run', 'orders'))
         ->assertRedirect(route('dashboard'));
 
-    Queue::assertPushed(SyncProducts::class, fn (SyncProducts $job): bool => $job->trigger === SyncTrigger::Manual && ! $job->full);
+    Queue::assertPushed(RunSync::class, fn (RunSync $job): bool => $job->sync === 'orders' && $job->trigger === SyncTrigger::Manual && ! $job->full);
+});
+
+test('"Run now" answers 404 for an unknown sync', function () {
+    $this->actingAs(User::factory()->create());
+
+    $this->post(route('syncs.run', 'customers'))->assertNotFound();
 });
 
 test('"Run now" does nothing while a sync is running', function () {
@@ -72,7 +81,7 @@ test('"Run now" does nothing while a sync is running', function () {
     $this->actingAs(User::factory()->create());
     SyncRun::factory()->running()->create();
 
-    $this->from(route('dashboard'))->post(route('syncs.products.run'));
+    $this->from(route('dashboard'))->post(route('syncs.run', 'products'));
 
     Queue::assertNothingPushed();
 });

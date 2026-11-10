@@ -4,7 +4,7 @@ use App\Integrations\WooCommerce\WooCommerceException;
 use App\Models\SyncCursor;
 use App\Models\SyncMapping;
 use App\Sync\Products\ProductSync;
-use App\Sync\Products\SyncResult;
+use App\Sync\SyncResult;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Tests\Support\FakeStore;
@@ -71,7 +71,7 @@ test('only products changed after the watermark are read', function () {
         ->and($result->skipped)->toBe(1)
         ->and($result->updated)->toBe(1)
         ->and($store->batches[1]['update'][0])->toMatchArray(['id' => $store->products['SKU-00001'], 'regular_price' => '12.00'])
-        ->and(SyncCursor::named(ProductSync::CURSOR)->last_key)->toBe('1');
+        ->and(SyncCursor::named(ProductSync::KEY)->last_key)->toBe('1');
 });
 
 test('a product changed in the same second as the watermark is not lost', function () {
@@ -143,7 +143,7 @@ test('items the store rejects are reported without stopping the batch', function
     $result = syncProducts();
 
     expect($result->created)->toBe(1)
-        ->and($result->failures)->toBe([['legacy_key' => '1', 'message' => 'Invalid price.']]);
+        ->and($result->failures)->toBe([['item_key' => '1', 'message' => 'Invalid price.']]);
 });
 
 test('transient errors are retried', function () {
@@ -174,7 +174,7 @@ test('the watermark does not move past a batch the store never accepted', functi
 
     expect(fn () => syncProducts())->toThrow(WooCommerceException::class);
 
-    $cursor = SyncCursor::named(ProductSync::CURSOR);
+    $cursor = SyncCursor::named(ProductSync::KEY);
     expect($cursor->last_key)->toBe('1')
         ->and($cursor->changed_at?->format('Y-m-d H:i:s'))->toBe('2026-01-01 08:00:00');
 });
@@ -189,4 +189,17 @@ test('a full run compares every product again', function () {
     expect($result->read)->toBe(1)
         ->and($result->skipped)->toBe(1)
         ->and($store->sentProducts())->toBe(1);
+});
+
+test('a retry sends only the given products, whatever the watermark', function () {
+    $store = FakeStore::fake();
+    LegacyErp::product(1);
+    LegacyErp::product(2);
+    LegacyErp::product(3);
+
+    $result = app(ProductSync::class)->retry(['2', '3']);
+
+    expect($result->created)->toBe(2)
+        ->and(array_column($store->batches[0]['create'], 'sku'))->toBe(['SKU-00002', 'SKU-00003'])
+        ->and(SyncCursor::named(ProductSync::KEY)->changed_at)->toBeNull();
 });

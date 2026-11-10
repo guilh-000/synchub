@@ -25,6 +25,7 @@ export function RunsTable({ runs }: { runs: SyncRun[] }) {
                 <thead className="text-left text-xs text-muted-foreground">
                     <tr className="border-b">
                         <th className="py-2 pr-4 font-medium">Run</th>
+                        <th className="py-2 pr-4 font-medium">Sync</th>
                         <th className="py-2 pr-4 font-medium">Status</th>
                         <th className="py-2 pr-4 font-medium">Started</th>
                         <th className="py-2 pr-4 font-medium">Trigger</th>
@@ -56,12 +57,18 @@ export function RunsTable({ runs }: { runs: SyncRun[] }) {
                                 >
                                     #{run.id}
                                 </Link>
+                                {run.retry_of_id !== null && (
+                                    <span className="ml-2 text-xs text-muted-foreground">
+                                        retry
+                                    </span>
+                                )}
                                 {run.full && (
                                     <span className="ml-2 text-xs text-muted-foreground">
                                         full
                                     </span>
                                 )}
                             </td>
+                            <td className="py-2 pr-4 capitalize">{run.sync}</td>
                             <td className="py-2 pr-4">
                                 <RunStatusBadge status={run.status} />
                             </td>

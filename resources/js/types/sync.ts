@@ -2,7 +2,8 @@ export type SyncRunStatus = 'running' | 'succeeded' | 'partial' | 'failed';
 
 export type SyncRunFailure = {
     id: number;
-    legacy_key: string;
+    /** ERP code (products, stock) or store order ID (orders). */
+    item_key: string;
     message: string;
 };
 
@@ -11,6 +12,8 @@ export type SyncRun = {
     sync: string;
     trigger: 'schedule' | 'manual' | 'console';
     full: boolean;
+    retry_of_id: number | null;
+    retries?: { id: number; status: SyncRunStatus }[];
     status: SyncRunStatus;
     read: number;
     created: number;

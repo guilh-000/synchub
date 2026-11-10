@@ -3,18 +3,19 @@
 namespace App\Jobs;
 
 use App\Enums\SyncTrigger;
-use App\Sync\Products\ProductSync;
-use App\Sync\Products\SyncResult;
+use App\Sync\SyncRegistry;
+use App\Sync\SyncResult;
 use App\Sync\SyncRunRecorder;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
 /**
- * Queued product sync. Unique: a run never starts while another is queued or
- * running, so two workers cannot send the same products at once.
+ * Runs one sync on the queue and records it as a SyncRun. Unique per sync:
+ * a sync never starts while another run of it is queued or running, so two
+ * workers cannot send the same records at once.
  */
-class SyncProducts implements ShouldBeUnique, ShouldQueue
+class RunSync implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
@@ -27,10 +28,21 @@ class SyncProducts implements ShouldBeUnique, ShouldQueue
     /** Seconds the uniqueness lock lasts if a worker dies mid-run. */
     public int $uniqueFor = 900;
 
+    /**
+     * @param  list<string>|null  $itemKeys  replay only these items (a retry)
+     */
     public function __construct(
+        public string $sync,
         public bool $full = false,
         public SyncTrigger $trigger = SyncTrigger::Schedule,
+        public ?array $itemKeys = null,
+        public ?int $retryOfId = null,
     ) {}
+
+    public function uniqueId(): string
+    {
+        return $this->sync;
+    }
 
     /**
      * Seconds between attempts: give a store that is down time to recover.
@@ -42,13 +54,18 @@ class SyncProducts implements ShouldBeUnique, ShouldQueue
         return [60, 300];
     }
 
-    public function handle(ProductSync $sync, SyncRunRecorder $recorder): void
+    public function handle(SyncRegistry $syncs, SyncRunRecorder $recorder): void
     {
+        $sync = $syncs->get($this->sync);
+
         $recorder->record(
-            ProductSync::CURSOR,
+            $sync->key(),
             $this->trigger,
             $this->full,
-            fn (SyncResult $result): SyncResult => $sync->run($this->full, $result),
+            fn (SyncResult $result): SyncResult => $this->itemKeys === null
+                ? $sync->run($this->full, $result)
+                : $sync->retry($this->itemKeys, $result),
+            $this->retryOfId,
         );
     }
 }

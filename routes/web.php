@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\RetrySyncRunController;
 use App\Http\Controllers\RunSyncController;
 use App\Http\Controllers\SyncRunController;
 use Illuminate\Support\Facades\Route;
@@ -12,8 +13,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('runs', [SyncRunController::class, 'index'])->name('runs.index');
     Route::get('runs/{run}', [SyncRunController::class, 'show'])->name('runs.show');
+    Route::post('runs/{run}/retry', RetrySyncRunController::class)->name('runs.retry');
 
-    Route::post('syncs/products/run', RunSyncController::class)->name('syncs.products.run');
+    Route::post('syncs/{sync}/run', RunSyncController::class)->name('syncs.run');
 });
 
 require __DIR__.'/settings.php';

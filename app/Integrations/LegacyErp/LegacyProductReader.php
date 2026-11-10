@@ -41,6 +41,30 @@ class LegacyProductReader
     }
 
     /**
+     * The given products, whatever their DT_ALT (replaying failures).
+     *
+     * @param  list<int>  $codes
+     * @return LazyCollection<int, LegacyProduct>
+     */
+    public function byCodes(array $codes): LazyCollection
+    {
+        return LazyCollection::make(function () use ($codes) {
+            foreach (array_chunk($codes, 500) as $chunk) {
+                $rows = $this->db()->table('PRODUTO')
+                    ->select(['CODPROD', 'REFERENCIA', 'DESCRICAO', 'PRECO_VENDA', 'PESO_KG', 'ATIVO', 'DT_ALT'])
+                    ->whereIn('CODPROD', $chunk)
+                    ->orderBy('CODPROD')
+                    ->get();
+
+                foreach ($rows as $row) {
+                    /** @var object{CODPROD: int|string, REFERENCIA: string, DESCRICAO: string, PRECO_VENDA: string|float, PESO_KG: string|float|null, ATIVO: string, DT_ALT: string} $row */
+                    yield LegacyProduct::fromRow($row);
+                }
+            }
+        });
+    }
+
+    /**
      * @return list<object{CODPROD: int|string, REFERENCIA: string, DESCRICAO: string, PRECO_VENDA: string|float, PESO_KG: string|float|null, ATIVO: string, DT_ALT: string}>
      */
     private function page(?string $changedAt, int $afterCode, int $pageSize): array

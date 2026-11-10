@@ -21,6 +21,11 @@ class SyncRunResource extends JsonResource
             'sync' => $this->sync,
             'trigger' => $this->trigger->value,
             'full' => $this->full,
+            'retry_of_id' => $this->retry_of_id,
+            'retries' => $this->whenLoaded('retries', fn () => $this->retries->map(fn (SyncRun $retry): array => [
+                'id' => $retry->id,
+                'status' => $retry->status->value,
+            ])),
             'status' => $this->status->value,
             'read' => $this->read,
             'created' => $this->created,
@@ -33,7 +38,7 @@ class SyncRunResource extends JsonResource
             'duration_seconds' => $this->durationInSeconds(),
             'failures' => $this->whenLoaded('failures', fn () => $this->failures->map(fn ($failure): array => [
                 'id' => $failure->id,
-                'legacy_key' => $failure->legacy_key,
+                'item_key' => $failure->item_key,
                 'message' => $failure->message,
             ])),
         ];

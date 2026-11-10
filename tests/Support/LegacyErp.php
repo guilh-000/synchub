@@ -29,6 +29,59 @@ final class LegacyErp
             $table->char('ATIVO', 1)->default('S');
             $table->dateTime('DT_ALT');
         });
+
+        Schema::connection('legacy')->create('ESTOQUE', function ($table) {
+            $table->integer('CODPROD');
+            $table->smallInteger('CODLOCAL');
+            $table->decimal('QTD', 12, 3);
+            $table->dateTime('DT_ALT');
+            $table->primary(['CODPROD', 'CODLOCAL']);
+        });
+
+        Schema::connection('legacy')->create('PEDIDO', function ($table) {
+            $table->increments('NUMPED');
+            $table->string('ORIGEM', 10);
+            $table->string('NUM_EXTERNO', 30)->nullable();
+            $table->string('CLIENTE_NOME', 100);
+            $table->string('CLIENTE_DOC', 18)->nullable();
+            $table->dateTime('DT_EMISSAO');
+            $table->decimal('VL_TOTAL', 12, 2);
+            $table->char('SITUACAO', 1);
+            $table->dateTime('DT_ALT')->nullable();
+        });
+
+        Schema::connection('legacy')->create('PEDIDO_ITEM', function ($table) {
+            $table->integer('NUMPED');
+            $table->smallInteger('SEQ');
+            $table->integer('CODPROD');
+            $table->decimal('QTD', 12, 3);
+            $table->decimal('VL_UNIT', 12, 2);
+            $table->primary(['NUMPED', 'SEQ']);
+        });
+    }
+
+    public static function stock(int $code, int $warehouse, float $quantity, string $at = '2026-01-01 08:00:00'): void
+    {
+        DB::connection('legacy')->table('ESTOQUE')->updateOrInsert(
+            ['CODPROD' => $code, 'CODLOCAL' => $warehouse],
+            ['QTD' => $quantity, 'DT_ALT' => $at],
+        );
+    }
+
+    /**
+     * @return list<object>
+     */
+    public static function orders(): array
+    {
+        return DB::connection('legacy')->table('PEDIDO')->orderBy('NUMPED')->get()->all();
+    }
+
+    /**
+     * @return list<object>
+     */
+    public static function orderItems(int $number): array
+    {
+        return DB::connection('legacy')->table('PEDIDO_ITEM')->where('NUMPED', $number)->orderBy('SEQ')->get()->all();
     }
 
     /**
