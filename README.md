@@ -13,8 +13,8 @@ It is built around the problems real integrations run into: a schema nobody
 can change, no "changed since" API, flaky networks, and the need to know
 exactly what failed and replay it.
 
-> **Status:** step 2 of 5 — products sync from the ERP to the store every
-> five minutes. Dashboard, stock and orders come next (see [Roadmap](#roadmap)).
+> **Status:** step 3 of 5 — products sync every five minutes and every run is
+> visible in a dashboard. Stock and orders come next (see [Roadmap](#roadmap)).
 
 ## Stack
 
@@ -33,8 +33,10 @@ docker compose run --rm --no-deps app composer install
 docker compose run --rm --no-deps app php artisan key:generate
 docker compose run --rm --no-deps vite npm ci
 docker compose up -d
-docker compose exec app php artisan migrate
+docker compose exec app php artisan migrate --seed
 ```
+
+Log in with `test@example.com` / `password` (created by the seeder).
 
 | Service                  | URL                                                |
 | ------------------------ | -------------------------------------------------- |
@@ -121,6 +123,20 @@ utf8mb4 so PHP only ever sees UTF-8. Without it, names like _Rolamento rígido_
 break JSON encoding — the hash uses `JSON_THROW_ON_ERROR` so that kind of
 problem fails loudly instead of sending a broken product.
 
+## Dashboard
+
+- **Health** of both systems — loaded as a deferred prop after the page
+  renders, so a slow or broken store never blocks the dashboard.
+- **Product sync** card: schedule, watermark, mapped products, last run and a
+  **Run now** button (queued; refused while a run is in progress).
+- **Runs**: every execution with who started it (schedule, dashboard,
+  console), its counters, duration, the error that stopped it and the items
+  the store rejected. Pages poll while a run is in progress.
+
+Each run is a `sync_runs` row created as _running_ before any work starts and
+closed by `SyncRunRecorder`, so a run that dies halfway still shows what it did
+and why it stopped.
+
 ## Quality checks
 
 ```bash
@@ -134,6 +150,6 @@ and the Pest suite. The same command runs on every push in GitHub Actions.
 
 1. ✅ Local stack: Laravel, legacy ERP, WooCommerce, Redis, CI
 2. ✅ Product sync ERP → store: ID mapping, watermark, batched upserts
-3. Run log and dashboard
+3. ✅ Run log and dashboard
 4. Stock, orders back to the ERP, retries and replay of failures
 5. Architecture notes and demo GIF
