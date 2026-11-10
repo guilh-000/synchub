@@ -13,8 +13,8 @@ It is built around the problems real integrations run into: a schema nobody
 can change, no "changed since" API, flaky networks, and the need to know
 exactly what failed and replay it.
 
-> **Status:** step 3 of 5 — products sync every five minutes and every run is
-> visible in a dashboard. Stock and orders come next (see [Roadmap](#roadmap)).
+> **Status:** step 4 of 5 — products, stock and orders sync on a schedule,
+> every run is visible in a dashboard and failed items can be replayed.
 
 ## Stack
 
@@ -68,16 +68,30 @@ on the external order number.
 The only change signal is a `DT_ALT` timestamp column — which is what the
 incremental sync will rely on.
 
-## Product sync
+## The syncs
+
+| Sync       | Direction   | Schedule    | What it does                                |
+| ---------- | ----------- | ----------- | ------------------------------------------- |
+| `products` | ERP → store | every 5 min | name, SKU, price, weight, published/draft   |
+| `stock`    | ERP → store | every 5 min | total of all warehouses, never below zero   |
+| `orders`   | store → ERP | every 2 min | paid orders become `PEDIDO` + `PEDIDO_ITEM` |
 
 ```bash
-docker compose exec app php artisan sync:products           # run now, print counters
-docker compose exec app php artisan sync:products --full    # compare every product
-docker compose exec app php artisan sync:products --queue   # hand it to Horizon
+docker compose exec app php artisan sync:run products          # run now, print counters
+docker compose exec app php artisan sync:run stock --full      # ignore the watermark
+docker compose exec app php artisan sync:run orders --queue    # hand it to Horizon
+docker compose exec app php artisan demo:place-orders 3 --foreign   # demo orders in the store
 ```
 
-The scheduler also queues it every five minutes. The first run creates the
-300 products in the store; the next ones send only what changed.
+On a fresh stack run `products`, then `stock`: stock only goes to products the
+store already has. `demo:place-orders` places paid orders (with `--foreign`,
+also one with a product that never came from the ERP, to see a rejection).
+
+Each sync implements the same small contract (`App\Sync\Sync`: `run()` and
+`retry()`), is listed in `config/synchub.php` and runs through one queued job,
+`RunSync`, unique per sync.
+
+### Product sync
 
 ```
 LegacyProductReader ──> ProductPayloadMapper ──> ProductSync ──> WooCommerceClient
@@ -123,15 +137,46 @@ utf8mb4 so PHP only ever sees UTF-8. Without it, names like _Rolamento rígido_
 break JSON encoding — the hash uses `JSON_THROW_ON_ERROR` so that kind of
 problem fails loudly instead of sending a broken product.
 
+### Stock sync
+
+`ESTOQUE` has one row per product and warehouse; the store has one number.
+Rows are grouped per product (`SUM(QTD)`, `MAX(DT_ALT)`) and paged by that
+change time, so moving units between warehouses re-reads the product but
+sends nothing when the total did not change. Negative ERP stock is sent as 0.
+Stock for a product the store does not have yet is reported, not lost: replay
+it once the product sync has run.
+
+### Order import
+
+Paid orders (`processing`, `completed`) are read by modification date and
+written to the ERP, header and items in **one transaction** — the ERP never
+sees half an order. An order is never written twice:
+
+1. a mapping row links the store order to the ERP `NUMPED`;
+2. before writing, the ERP is searched for the store order number too. The
+   ERP has no unique key on it, and the mapping lives in another database,
+   saved after the ERP commit: if SyncHub dies between the two, the next run
+   finds the order in the ERP and only restores the mapping.
+
+An order with a product that did not come from the ERP is not written at all
+and is reported with the reason.
+
+### Replaying failures
+
+Every rejected item is stored with its reason. **Retry** on a run queues a new
+run of the same sync with only those items (`Sync::retry()`), whatever the
+watermark says; the two runs link to each other.
+
 ## Dashboard
 
 - **Health** of both systems — loaded as a deferred prop after the page
   renders, so a slow or broken store never blocks the dashboard.
-- **Product sync** card: schedule, watermark, mapped products, last run and a
-  **Run now** button (queued; refused while a run is in progress).
+- One card per sync: schedule, watermark, mapped records, last run and a
+  **Run now** button (queued; refused while that sync is running).
 - **Runs**: every execution with who started it (schedule, dashboard,
   console), its counters, duration, the error that stopped it and the items
-  the store rejected. Pages poll while a run is in progress.
+  the store rejected, with a **Retry** button. Pages poll while a run is in
+  progress.
 
 Each run is a `sync_runs` row created as _running_ before any work starts and
 closed by `SyncRunRecorder`, so a run that dies halfway still shows what it did
@@ -151,5 +196,5 @@ and the Pest suite. The same command runs on every push in GitHub Actions.
 1. ✅ Local stack: Laravel, legacy ERP, WooCommerce, Redis, CI
 2. ✅ Product sync ERP → store: ID mapping, watermark, batched upserts
 3. ✅ Run log and dashboard
-4. Stock, orders back to the ERP, retries and replay of failures
+4. ✅ Stock, orders back to the ERP, retries and replay of failures
 5. Architecture notes and demo GIF
