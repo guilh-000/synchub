@@ -1,16 +1,78 @@
 <?php
 
+use App\Enums\SyncTrigger;
+use App\Jobs\SyncProducts;
+use App\Models\SyncRun;
 use App\Models\User;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Support\FakeStore;
+use Tests\Support\LegacyErp;
 
 test('guests are redirected to the login page', function () {
-    $response = $this->get(route('dashboard'));
-    $response->assertRedirect(route('login'));
+    $this->get(route('dashboard'))->assertRedirect(route('login'));
 });
 
-test('authenticated users can visit the dashboard', function () {
-    $user = User::factory()->create();
-    $this->actingAs($user);
+test('the dashboard shows the product sync and the latest runs', function () {
+    $this->actingAs(User::factory()->create());
+    SyncRun::factory()->count(3)->create();
+    $last = SyncRun::factory()->running()->create();
 
-    $response = $this->get(route('dashboard'));
-    $response->assertOk();
+    $this->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('dashboard')
+            ->where('syncs.0.key', 'products')
+            ->where('syncs.0.running', true)
+            ->where('syncs.0.last_run.id', $last->id)
+            ->has('recentRuns', 4)
+            ->missing('health'));
+});
+
+test('the health of both systems loads after the page', function () {
+    $this->actingAs(User::factory()->create());
+    LegacyErp::boot();
+    LegacyErp::product(1);
+    FakeStore::configure();
+    Http::fake(['store.test/*' => Http::response([['id' => 1]], 200, ['X-WP-Total' => '42'])]);
+
+    $this->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->loadDeferredProps(fn (Assert $reload) => $reload
+                ->where('health.erp', ['ok' => true, 'detail' => '1 products'])
+                ->where('health.store', ['ok' => true, 'detail' => '42 products'])));
+});
+
+test('an unreachable store shows up in the health check instead of breaking the page', function () {
+    $this->actingAs(User::factory()->create());
+    LegacyErp::boot();
+    FakeStore::configure();
+    Http::fake(['store.test/*' => Http::response('', 401)]);
+
+    $this->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->loadDeferredProps(fn (Assert $reload) => $reload
+                ->where('health.store.ok', false)
+                ->where('health.erp.ok', true)));
+});
+
+test('"Run now" queues a product sync started from the dashboard', function () {
+    Queue::fake();
+    $this->actingAs(User::factory()->create());
+
+    $this->from(route('dashboard'))
+        ->post(route('syncs.products.run'))
+        ->assertRedirect(route('dashboard'));
+
+    Queue::assertPushed(SyncProducts::class, fn (SyncProducts $job): bool => $job->trigger === SyncTrigger::Manual && ! $job->full);
+});
+
+test('"Run now" does nothing while a sync is running', function () {
+    Queue::fake();
+    $this->actingAs(User::factory()->create());
+    SyncRun::factory()->running()->create();
+
+    $this->from(route('dashboard'))->post(route('syncs.products.run'));
+
+    Queue::assertNothingPushed();
 });

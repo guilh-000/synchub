@@ -49,6 +49,28 @@ class WooCommerceClient
     }
 
     /**
+     * How many products the store has, or an exception when it cannot be
+     * reached. One quick attempt, no retries: meant for health checks.
+     */
+    public function productCount(): int
+    {
+        try {
+            $response = Http::baseUrl(rtrim($this->baseUrl, '/').'/wp-json/wc/v3/')
+                ->withBasicAuth($this->username, $this->password)
+                ->acceptJson()
+                ->timeout(5)
+                ->get('products', ['per_page' => 1, 'status' => 'any', '_fields' => 'id'])
+                ->throw();
+        } catch (RequestException $exception) {
+            throw new WooCommerceException("WooCommerce answered {$exception->response->status()}.", previous: $exception);
+        } catch (ConnectionException $exception) {
+            throw new WooCommerceException('WooCommerce is unreachable.', previous: $exception);
+        }
+
+        return (int) $response->header('X-WP-Total');
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      * @return array<mixed>
      */
