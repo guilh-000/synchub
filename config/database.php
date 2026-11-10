@@ -66,7 +66,9 @@ return [
 
         /*
          * The fake legacy ERP SyncHub integrates with (docker/legacy-erp).
-         * latin1 on purpose: that is how the tables were created.
+         * Its tables are latin1, but the connection asks for utf8mb4 so MySQL
+         * converts on the way out: PHP strings must be UTF-8, or JSON
+         * encoding of names like "Rolamento rígido" fails.
          */
         'legacy' => [
             'driver' => 'mysql',
@@ -75,8 +77,8 @@ return [
             'database' => env('LEGACY_DB_DATABASE', 'erp'),
             'username' => env('LEGACY_DB_USERNAME', 'erp'),
             'password' => env('LEGACY_DB_PASSWORD', ''),
-            'charset' => 'latin1',
-            'collation' => 'latin1_swedish_ci',
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
             'prefix' => '',
             'strict' => false,
             'engine' => null,
