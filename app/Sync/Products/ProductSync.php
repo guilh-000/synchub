@@ -38,12 +38,13 @@ class ProductSync
 
     /**
      * @param  bool  $full  ignore the watermark and compare every product
+     * @param  SyncResult  $result  filled as the run goes, so the counters
+     *                              survive an exception halfway through
      *
      * @throws WooCommerceException when the store is unreachable after the retries
      */
-    public function run(bool $full = false): SyncResult
+    public function run(bool $full = false, SyncResult $result = new SyncResult): SyncResult
     {
-        $result = new SyncResult;
         $cursor = SyncCursor::named(self::CURSOR);
         $batchSize = max(1, min(100, (int) config('synchub.products.batch_size')));
 

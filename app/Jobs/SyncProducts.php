@@ -2,11 +2,13 @@
 
 namespace App\Jobs;
 
+use App\Enums\SyncTrigger;
 use App\Sync\Products\ProductSync;
+use App\Sync\Products\SyncResult;
+use App\Sync\SyncRunRecorder;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Queued product sync. Unique: a run never starts while another is queued or
@@ -25,7 +27,10 @@ class SyncProducts implements ShouldBeUnique, ShouldQueue
     /** Seconds the uniqueness lock lasts if a worker dies mid-run. */
     public int $uniqueFor = 900;
 
-    public function __construct(public bool $full = false) {}
+    public function __construct(
+        public bool $full = false,
+        public SyncTrigger $trigger = SyncTrigger::Schedule,
+    ) {}
 
     /**
      * Seconds between attempts: give a store that is down time to recover.
@@ -37,14 +42,13 @@ class SyncProducts implements ShouldBeUnique, ShouldQueue
         return [60, 300];
     }
 
-    public function handle(ProductSync $sync): void
+    public function handle(ProductSync $sync, SyncRunRecorder $recorder): void
     {
-        $result = $sync->run($this->full);
-
-        Log::info('Product sync finished.', $result->counters());
-
-        foreach ($result->failures as $failure) {
-            Log::warning('Product not synced.', $failure);
-        }
+        $recorder->record(
+            ProductSync::CURSOR,
+            $this->trigger,
+            $this->full,
+            fn (SyncResult $result): SyncResult => $sync->run($this->full, $result),
+        );
     }
 }

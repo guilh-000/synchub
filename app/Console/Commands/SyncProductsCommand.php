@@ -2,9 +2,12 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\SyncTrigger;
 use App\Integrations\WooCommerce\WooCommerceException;
 use App\Jobs\SyncProducts;
 use App\Sync\Products\ProductSync;
+use App\Sync\Products\SyncResult;
+use App\Sync\SyncRunRecorder;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -13,29 +16,31 @@ use Illuminate\Console\Command;
 #[Description('Send products changed in the legacy ERP to the store')]
 class SyncProductsCommand extends Command
 {
-    public function handle(ProductSync $sync): int
+    public function handle(ProductSync $sync, SyncRunRecorder $recorder): int
     {
+        $full = (bool) $this->option('full');
+
         if ($this->option('queue')) {
-            SyncProducts::dispatch((bool) $this->option('full'));
+            SyncProducts::dispatch($full, SyncTrigger::Console);
             $this->components->info('Product sync queued.');
 
             return self::SUCCESS;
         }
 
         try {
-            $result = $sync->run((bool) $this->option('full'));
+            $run = $recorder->record(ProductSync::CURSOR, SyncTrigger::Console, $full, fn (SyncResult $result): SyncResult => $sync->run($full, $result));
         } catch (WooCommerceException $exception) {
             $this->components->error($exception->getMessage());
 
             return self::FAILURE;
         }
 
-        $this->table(['Read', 'Created', 'Updated', 'Skipped', 'Failed'], [array_values($result->counters())]);
+        $this->table(['Read', 'Created', 'Updated', 'Skipped', 'Failed'], [[$run->read, $run->created, $run->updated, $run->skipped, $run->failed]]);
 
-        foreach ($result->failures as $failure) {
-            $this->components->warn("Product {$failure['legacy_key']}: {$failure['message']}");
+        foreach ($run->failures as $failure) {
+            $this->components->warn("Product {$failure->legacy_key}: {$failure->message}");
         }
 
-        return $result->failed() === 0 ? self::SUCCESS : self::FAILURE;
+        return $run->failed === 0 ? self::SUCCESS : self::FAILURE;
     }
 }
